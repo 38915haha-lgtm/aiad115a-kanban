@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>即時天氣與毛孩資訊看板</title>
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --border-color: rgba(255, 255, 255, 0.1);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+
+    .dashboard {
+      width: 100%;
+      max-width: 900px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      position: relative;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    /* 天氣模組樣式 */
+    .weather-main {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .temp-display {
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .temp-unit {
+      font-size: 1.5rem;
+      color: var(--text-muted);
+    }
+
+    .weather-status {
+      font-size: 1.25rem;
+      margin-bottom: 20px;
+      color: var(--accent);
+    }
+
+    .weather-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: auto;
+      border-top: 1px solid var(--border-color);
+      padding-top: 16px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .detail-item strong {
+      color: var(--text-main);
+      display: block;
+      font-size: 1rem;
+      margin-top: 2px;
+    }
+
+    /* 狗狗圖片模組樣式 */
+    .dog-image-container {
+      position: relative;
+      width: 100%;
+      height: 280px;
+      border-radius: calc(var(--radius) - 4px);
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .dog-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .dog-img.loaded {
+      opacity: 1;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Loading 動態指示器 */
+    .spinner {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    .spinner.active {
+      display: block;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error-msg {
+      color: #f87171;
+      font-size: 0.85rem;
+      margin-top: 8px;
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+
+  <main class="dashboard">
+    <!-- 天氣卡片 -->
+    <section class="card" id="weather-card">
+      <div class="card-header">
+        <h2 class="card-title">即時天氣</h2>
+        <span class="badge" id="location-source">定位中...</span>
+      </div>
+
+      <div class="weather-main">
+        <div class="temp-display" id="temp">--</div>
+        <div class="temp-unit">°C</div>
+      </div>
+      <div class="weather-status" id="weather-desc">正在獲取資料...</div>
+
+      <div class="weather-details">
+        <div class="detail-item">風速<strong id="wind-speed">-- km/h</strong></div>
+        <div class="detail-item">風向<strong id="wind-direction">--°</strong></div>
+      </div>
+      <div class="error-msg" id="weather-error"></div>
+    </section>
+
+    <!-- 狗狗卡片 -->
+    <section class="card" id="dog-card">
+      <div class="card-header">
+        <h2 class="card-title">今日汪汪</h2>
+        <span class="badge">Dog CEO API</span>
+      </div>
+
+      <div class="dog-image-container">
+        <div class="spinner" id="dog-spinner"></div>
+        <img id="dog-image" class="dog-img" alt="隨機狗狗相片" />
+      </div>
+
+      <button class="btn" id="refresh-dog-btn">換一張汪汪</button>
+      <div class="error-msg" id="dog-error"></div>
+    </section>
+  </main>
+
+  <script>
+    // 預設降級坐標（高雄）
+    const DEFAULT_COORDS = { latitude: 22.6273, longitude: 120.3014, name: "預設位置 (高雄)" };
+
+    // WMO 天氣代碼對應表
+    const WMO_CODES = {
+      0: "晴朗無雲",
+      1: "主要多雲", 2: "部分多雲", 3: "陰天",
+      45: "起霧", 48: "霧淞",
+      51: "輕微毛毛雨", 53: "毛毛雨", 55: "密集毛毛雨",
+      61: "輕微小雨", 63: "陣雨", 65: "大雨",
+      71: "輕微降雪", 73: "降雪", 75: "暴風雪",
+      80: "短暫陣雨", 81: "中度陣雨", 82: "強烈陣雨",
+      95: "雷陣雨", 96: "雷陣雨夾帶微雹", 99: "強烈雷雨伴隨大冰雹"
+    };
+
+    /* -------------------------------------------
+     * 天氣模組 (Open-Meteo)
+     * ------------------------------------------- */
+    async function initWeather() {
+      const locBadge = document.getElementById("location-source");
+      const errorEl = document.getElementById("weather-error");
+
+      let coords = DEFAULT_COORDS;
+
+      // 取得地理位置（防禦性 Timeout：6 秒）
+      if ("geolocation" in navigator) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 6000,
+              maximumAge: 300000,
+              enableHighAccuracy: false
+            });
+          });
+          coords = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            name: "GPS 當前位置"
+          };
+        } catch (err) {
+          console.warn("無法取得使用者位置，採用降級坐標:", err.message);
+        }
+      }
+
+      locBadge.textContent = coords.name;
+      fetchWeatherData(coords.latitude, coords.longitude, errorEl);
+
+      // 每 15 分鐘自動刷新
+      setInterval(() => {
+        fetchWeatherData(coords.latitude, coords.longitude, errorEl);
+      }, 15 * 60 * 1000);
+    }
+
+    async function fetchWeatherData(lat, lon, errorEl) {
+      errorEl.textContent = "";
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP 錯誤碼: ${res.status}`);
+
+        const data = await res.json();
+        const current = data.current_weather;
+
+        document.getElementById("temp").textContent = Math.round(current.temperature);
+        document.getElementById("weather-desc").textContent = WMO_CODES[current.weathercode] || "未知氣象代碼";
+        document.getElementById("wind-speed").textContent = `${current.windspeed} km/h`;
+        document.getElementById("wind-direction").textContent = `${current.winddirection}°`;
+      } catch (err) {
+        errorEl.textContent = `天氣載入失敗: ${err.message}`;
+      }
+    }
+
+    /* -------------------------------------------
+     * 狗狗圖片模組 (Dog CEO API)
+     * 帶 AbortController 解決點擊競爭與延遲覆蓋
+     * ------------------------------------------- */
+    let currentDogAbortController = null;
+
+    async function fetchDogImage() {
+      const imgEl = document.getElementById("dog-image");
+      const spinner = document.getElementById("dog-spinner");
+      const btn = document.getElementById("refresh-dog-btn");
+      const errorEl = document.getElementById("dog-error");
+
+      // 中斷前一個尚未完成的請求
+      if (currentDogAbortController) {
+        currentDogAbortController.abort();
+      }
+      currentDogAbortController = new AbortController();
+
+      btn.disabled = true;
+      spinner.classList.add("active");
+      errorEl.textContent = "";
+
+      try {
+        const res = await fetch("https://dog.ceo/api/breeds/image/random", {
+          signal: currentDogAbortController.signal
+        });
+        if (!res.ok) throw new Error(`HTTP 錯誤碼: ${res.status}`);
+
+        const data = await res.json();
+        if (data.status !== "success") throw new Error("API 資料格式異常");
+
+        // 預載圖片：避免 DOM 直接切換造成畫面閃爍
+        await preloadImage(data.message);
+
+        imgEl.src = data.message;
+        imgEl.classList.add("loaded");
+      } catch (err) {
+        if (err.name === "AbortError") {
+          return; // 被後續請求取消，不視為錯誤
+        }
+        errorEl.textContent = `圖片取得失敗: ${err.message}`;
+      } finally {
+        spinner.classList.remove("active");
+        btn.disabled = false;
+      }
+    }
+
+    function preloadImage(url) {
+      return new Promise((resolve, reject) => {
+        const tempImg = new Image();
+        tempImg.onload = () => resolve();
+        tempImg.onerror = () => reject(new Error("圖片載入超時或損毀"));
+        tempImg.src = url;
+      });
+    }
+
+    /* -------------------------------------------
+     * 初始化啟動
+     * ------------------------------------------- */
+    document.addEventListener("DOMContentLoaded", () => {
+      initWeather();
+      fetchDogImage();
+
+      document.getElementById("refresh-dog-btn").addEventListener("click", fetchDogImage);
+    });
+  </script>
+</body>
+</html>
